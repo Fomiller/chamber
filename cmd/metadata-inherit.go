@@ -12,7 +12,7 @@ import (
 )
 
 // listCmd represents the list command
-var inheritCmd = &cobra.Command{
+var metadataInheritCmd = &cobra.Command{
 	Use:   "inherit <service> <inherited service>",
 	Short: "inherit a services secrets for another service",
 	Args:  cobra.ExactArgs(1),
@@ -20,18 +20,17 @@ var inheritCmd = &cobra.Command{
 }
 
 func init() {
-	RootCmd.AddCommand(inheritCmd)
+	metadataCmd.AddCommand(metadataInheritCmd)
 }
 
 func inherit(cmd *cobra.Command, args []string) error {
 	service := utils.NormalizeService(args[0])
-	inheritedService := utils.NormalizeService(args[1])
 	if err := validateServiceWithLabel(service); err != nil {
 		return fmt.Errorf("Failed to validate service: %w", err)
 	}
-	if err := validateServiceWithLabel(inheritedService); err != nil {
-		return fmt.Errorf("Failed to validate service: %w", err)
-	}
+	// if err := validateServiceWithLabel(inheritedService); err != nil {
+	// 	return fmt.Errorf("Failed to validate service: %w", err)
+	// }
 
 	if analyticsEnabled && analyticsClient != nil {
 		_ = analyticsClient.Enqueue(analytics.Track{
