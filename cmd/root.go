@@ -238,6 +238,21 @@ func getSecretStore(ctx context.Context) (store.Store, error) {
 	return s, err
 }
 
+func getMetadataStore(ctx context.Context) (store.MetadataStore, error) {
+
+	var s store.MetadataStore
+	var err error
+	var parsedRetryMode aws.RetryMode
+
+	parsedRetryMode, err = aws.ParseRetryMode(retryMode)
+	if err != nil {
+		return nil, fmt.Errorf("Invalid retry mode %s", retryMode)
+	}
+	s, err = store.NewDynamodbMetadataStoreWithRetryMode(ctx, numRetries, parsedRetryMode)
+	return s, err
+
+}
+
 func prerun(cmd *cobra.Command, args []string) {
 	if analyticsEnabled {
 		// set up analytics client
