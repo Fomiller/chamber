@@ -86,44 +86,61 @@ func (d *DynamodbMetadataStore) Read(ctx context.Context, service string) (Metad
 	return item, nil
 }
 
-func (d *DynamodbMetadataStore) SetInherits(ctx context.Context, service string, inherits []string) error {
+func (d *DynamodbMetadataStore) SetInherits(
+	ctx context.Context,
+	service string,
+	inherits []string,
+) error {
 	tableName := os.Getenv("CHAMBER_METADATA_TABLE_NAME")
 	if tableName == "" {
 		return fmt.Errorf("CHAMBER_METADATA_TABLE_NAME must be set")
 	}
 
-	if len(inherits) > 0 {
-		item := map[string]types.AttributeValue{
-			"service":  &types.AttributeValueMemberS{Value: service},
-			"inherits": &types.AttributeValueMemberSS{Value: inherits},
-		}
-
-		_, err := d.svc.PutItem(ctx, &dynamodb.PutItemInput{
-			TableName: aws.String(tableName),
-			Item:      item,
-		})
-		return err
-	} else {
+	if len(inherits) == 0 {
 		_, err := d.svc.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 			TableName: aws.String(tableName),
 			Key: map[string]types.AttributeValue{
-				"service": &types.AttributeValueMemberS{
-					Value: service,
-				},
+				"service": &types.AttributeValueMemberS{Value: service},
 			},
 			UpdateExpression: aws.String("REMOVE inherits"),
 		})
 		if err != nil {
-			return fmt.Errorf("failed to remove inherits for service %q: %w", service, err)
+			return fmt.Errorf(
+				"failed to remove inherits for service %q: %w",
+				service,
+				err,
+			)
 		}
+		return nil
 	}
+
+	_, err := d.svc.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+		TableName: aws.String(tableName),
+		Key: map[string]types.AttributeValue{
+			"service": &types.AttributeValueMemberS{Value: service},
+		},
+		UpdateExpression: aws.String("SET inherits = :vals"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":vals": &types.AttributeValueMemberSS{
+				Value: inherits,
+			},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf(
+			"failed to set inherits for service %q: %w",
+			service,
+			err,
+		)
+	}
+
 	return nil
 }
 
 func (d *DynamodbMetadataStore) AddInherits(
 	ctx context.Context,
 	service string,
-	parents []string,
+	inherits []string,
 ) error {
 	tableName := os.Getenv("CHAMBER_METADATA_TABLE_NAME")
 	if tableName == "" {
@@ -140,12 +157,43 @@ func (d *DynamodbMetadataStore) AddInherits(
 		UpdateExpression: aws.String("ADD inherits :vals"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":vals": &types.AttributeValueMemberSS{
-				Value: parents,
+				Value: inherits,
 			},
 		},
 	})
 	if err != nil {
 		return fmt.Errorf("failed to add inherits for %q: %w", service, err)
+	}
+
+	return nil
+}
+
+func (d *DynamodbMetadataStore) DeleteInherits(
+	ctx context.Context,
+	service string,
+	inherits []string,
+) error {
+	tableName := os.Getenv("CHAMBER_METADATA_TABLE_NAME")
+	if tableName == "" {
+		return fmt.Errorf("CHAMBER_METADATA_TABLE_NAME must be set")
+	}
+
+	_, err := d.svc.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+		TableName: aws.String(tableName),
+		Key: map[string]types.AttributeValue{
+			"service": &types.AttributeValueMemberS{
+				Value: service,
+			},
+		},
+		UpdateExpression: aws.String("DELETE inherits :vals"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":vals": &types.AttributeValueMemberSS{
+				Value: inherits,
+			},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete inherits for %q: %w", service, err)
 	}
 
 	return nil

@@ -12,7 +12,7 @@ import (
 // listCmd represents the list command
 var metadataInheritsSetCmd = &cobra.Command{
 	Use:   "set [service] [inherits]",
-	Short: "Set inherited services for a service",
+	Short: "overwrite the inherited services for a service",
 	Long:  "Sets the full list of services this service inherits from (comma-separated).",
 	Args:  cobra.ExactArgs(2),
 	RunE:  inheritsSet,

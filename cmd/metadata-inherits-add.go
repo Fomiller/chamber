@@ -9,7 +9,7 @@ import (
 // listCmd represents the list command
 var metadataInheritsAddCmd = &cobra.Command{
 	Use:   "add [service] [inherits]",
-	Short: "add an inherited services for a service",
+	Short: "add one or more inherited services for a service",
 	Long:  "Removes services from the list of services this service inherits from (comma-separated).",
 	Args:  cobra.ExactArgs(2),
 	RunE:  inheritsAdd,

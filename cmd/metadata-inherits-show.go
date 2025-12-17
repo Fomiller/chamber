@@ -17,6 +17,7 @@ import (
 var metadataInheritsShowCmd = &cobra.Command{
 	Use:   "show <service>",
 	Short: "show inherited services for a service",
+	Long:  "Shows the dependency graph of inherited services in a tree.",
 	Args:  cobra.ExactArgs(1),
 	RunE:  inheritsShow,
 }
