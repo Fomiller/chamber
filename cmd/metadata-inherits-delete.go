@@ -9,7 +9,7 @@ import (
 // listCmd represents the list command
 var metadataInheritsDeleteCmd = &cobra.Command{
 	Use:   "delete [service] [inherits]",
-	Short: "delete inherited services for a service",
+	Short: "delete an inherited services for a service",
 	Long:  "Removes services from the list of services this service inherits from (comma-separated).",
 	Args:  cobra.ExactArgs(2),
 	RunE:  inheritsDelete,

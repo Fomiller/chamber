@@ -119,3 +119,34 @@ func (d *DynamodbMetadataStore) SetInherits(ctx context.Context, service string,
 	}
 	return nil
 }
+
+func (d *DynamodbMetadataStore) AddInherits(
+	ctx context.Context,
+	service string,
+	parents []string,
+) error {
+	tableName := os.Getenv("CHAMBER_METADATA_TABLE_NAME")
+	if tableName == "" {
+		return fmt.Errorf("CHAMBER_METADATA_TABLE_NAME must be set")
+	}
+
+	_, err := d.svc.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+		TableName: aws.String(tableName),
+		Key: map[string]types.AttributeValue{
+			"service": &types.AttributeValueMemberS{
+				Value: service,
+			},
+		},
+		UpdateExpression: aws.String("ADD inherits :vals"),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":vals": &types.AttributeValueMemberSS{
+				Value: parents,
+			},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to add inherits for %q: %w", service, err)
+	}
+
+	return nil
+}

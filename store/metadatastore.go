@@ -94,6 +94,7 @@ type Metadata struct {
 type MetadataStore interface {
 	Read(ctx context.Context, service string) (Metadata, error)
 	SetInherits(ctx context.Context, service string, inherits []string) error
+	AddInherits(ctx context.Context, service string, inherits []string) error
 }
 
 // func requiredTags(ctx context.Context, s Store) ([]string, error) {
