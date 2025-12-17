@@ -211,6 +211,31 @@ func (d *DynamodbMetadataStore) Read(ctx context.Context, service string) (Metad
 	// }, nil
 	return item, nil
 }
+func (d *DynamodbMetadataStore) SetInherits(ctx context.Context, service string, inherits []string) error {
+	tableName := os.Getenv("CHAMBER_METADATA_TABLE_NAME")
+	if tableName == "" {
+		return fmt.Errorf("CHAMBER_METADATA_TABLE_NAME must be set")
+	}
+	item := map[string]types.AttributeValue{
+		"service":  &types.AttributeValueMemberS{Value: service},
+		"inherits": &types.AttributeValueMemberL{Value: stringSliceToAV(inherits)},
+	}
+
+	_, err := d.svc.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName: aws.String(tableName),
+		Item:      item,
+	})
+
+	return err
+}
+
+func stringSliceToAV(vals []string) []types.AttributeValue {
+	out := make([]types.AttributeValue, 0, len(vals))
+	for _, v := range vals {
+		out = append(out, &types.AttributeValueMemberS{Value: v})
+	}
+	return out
+}
 
 //
 // func (s *DynamodbMetadataStore) WriteTags(ctx context.Context, id SecretId, tags map[string]string, deleteOtherTags bool) error {
