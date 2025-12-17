@@ -14,32 +14,29 @@ import (
 )
 
 // listCmd represents the list command
-var metadataInheritShowCmd = &cobra.Command{
+var metadataInheritsShowCmd = &cobra.Command{
 	Use:   "show <service>",
 	Short: "show inherited services for a service",
 	Args:  cobra.ExactArgs(1),
-	RunE:  inherit,
+	RunE:  inheritsShow,
 }
 
 func init() {
-	metadataInheritCmd.AddCommand(metadataInheritShowCmd)
+	metadataInheritsCmd.AddCommand(metadataInheritsShowCmd)
 }
 
-func inherit(cmd *cobra.Command, args []string) error {
+func inheritsShow(cmd *cobra.Command, args []string) error {
 	service := utils.NormalizeService(args[0])
 	if err := validateServiceWithLabel(service); err != nil {
 		return fmt.Errorf("Failed to validate service: %w", err)
 	}
-	// if err := validateServiceWithLabel(inheritedService); err != nil {
-	// 	return fmt.Errorf("Failed to validate service: %w", err)
-	// }
 
 	if analyticsEnabled && analyticsClient != nil {
 		_ = analyticsClient.Enqueue(analytics.Track{
 			UserId: username,
 			Event:  "Ran Command",
 			Properties: analytics.NewProperties().
-				Set("command", "inherit").
+				Set("command", "inherits").
 				Set("chamber-version", chamberVersion).
 				Set("service", service).
 				Set("backend", backend),
@@ -58,26 +55,7 @@ func inherit(cmd *cobra.Command, args []string) error {
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 8, 2, '\t', 0)
 
-	// if withValues {
-	// 	fmt.Fprint(w, "\tValue")
-	// }
-	// fmt.Fprintln(w, "")
-	//
-	// sort.Sort(ByName(secrets))
-	// if sortByTime {
-	// 	sort.Sort(ByTime(secrets))
-	// }
-	// if sortByUser {
-	// 	sort.Sort(ByUser(secrets))
-	// }
-	// if sortByVersion {
-	// 	sort.Sort(ByVersion(secrets))
-	// }
-	//
 	visited := make(map[string]bool)
-	// printInheritanceTree(cmd.Context(), service, metadataStore, 0, visited)
-	// inheritedServices := strings.Join(metadata.Inherits, ", ")
-	// fmt.Fprintf(w, "%s", buildInheritanceTree(cmd.Context(), service, metadataStore, 0, visited))
 
 	fmt.Fprintln(w, "Service")
 	fmt.Fprintln(w, service)
@@ -128,35 +106,3 @@ func buildInheritanceTree(ctx context.Context, service string, store store.Metad
 
 	return b.String()
 }
-
-// func key(s string) string {
-// 	sep := "/"
-//
-// 	tokens := strings.Split(s, sep)
-// 	secretKey := tokens[len(tokens)-1]
-// 	return secretKey
-// }
-//
-// type ByName []store.Secret
-//
-// func (a ByName) Len() int           { return len(a) }
-// func (a ByName) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-// func (a ByName) Less(i, j int) bool { return a[i].Meta.Key < a[j].Meta.Key }
-//
-// type ByTime []store.Secret
-//
-// func (a ByTime) Len() int           { return len(a) }
-// func (a ByTime) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-// func (a ByTime) Less(i, j int) bool { return a[i].Meta.Created.Before(a[j].Meta.Created) }
-//
-// type ByUser []store.Secret
-//
-// func (a ByUser) Len() int           { return len(a) }
-// func (a ByUser) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-// func (a ByUser) Less(i, j int) bool { return a[i].Meta.CreatedBy < a[j].Meta.CreatedBy }
-//
-// type ByVersion []store.Secret
-//
-// func (a ByVersion) Len() int           { return len(a) }
-// func (a ByVersion) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-// func (a ByVersion) Less(i, j int) bool { return a[i].Meta.Version < a[j].Meta.Version }
