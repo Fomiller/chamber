@@ -14,15 +14,15 @@ import (
 )
 
 // listCmd represents the list command
-var metadataInheritCmd = &cobra.Command{
-	Use:   "inherit <service> <inherited service>",
-	Short: "inherit a services secrets for another service",
+var metadataInheritShowCmd = &cobra.Command{
+	Use:   "show <service>",
+	Short: "show inherited services for a service",
 	Args:  cobra.ExactArgs(1),
 	RunE:  inherit,
 }
 
 func init() {
-	metadataCmd.AddCommand(metadataInheritCmd)
+	metadataInheritCmd.AddCommand(metadataInheritShowCmd)
 }
 
 func inherit(cmd *cobra.Command, args []string) error {
@@ -58,9 +58,6 @@ func inherit(cmd *cobra.Command, args []string) error {
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 8, 2, '\t', 0)
 
-	fmt.Fprint(w, "Service\tInherits")
-	fmt.Fprintln(w, "")
-
 	// if withValues {
 	// 	fmt.Fprint(w, "\tValue")
 	// }
@@ -79,9 +76,16 @@ func inherit(cmd *cobra.Command, args []string) error {
 	//
 	visited := make(map[string]bool)
 	// printInheritanceTree(cmd.Context(), service, metadataStore, 0, visited)
-
 	// inheritedServices := strings.Join(metadata.Inherits, ", ")
-	fmt.Fprintf(w, "%s", key(metadata.Service), buildInheritanceTree(cmd.Context(), service, metadataStore, 0, visited))
+	// fmt.Fprintf(w, "%s", buildInheritanceTree(cmd.Context(), service, metadataStore, 0, visited))
+
+	fmt.Fprintln(w, "Service")
+	fmt.Fprintln(w, service)
+
+	for i, parent := range metadata.Inherits {
+		last := i == len(metadata.Inherits)-1
+		fmt.Print(buildInheritanceTree(cmd.Context(), parent, metadataStore, "", last, visited))
+	}
 
 	fmt.Fprintln(w, "")
 
@@ -89,31 +93,37 @@ func inherit(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func buildInheritanceTree(ctx context.Context, service string, store store.MetadataStore, depth int, visited map[string]bool) string {
+func buildInheritanceTree(ctx context.Context, service string, store store.MetadataStore, prefix string, isLast bool, visited map[string]bool) string {
 	var b strings.Builder
 
-	// Prevent cycles
+	// Choose branch symbol
+	branch := "├─ "
+	nextPrefix := prefix + "│  "
+	if isLast {
+		branch = "└─ "
+		nextPrefix = prefix + "   "
+	}
+
+	// Cycle detection
 	if visited[service] {
-		b.WriteString(fmt.Sprintf("%s%s (cycle)\n", strings.Repeat("  ", depth), service))
+		b.WriteString(fmt.Sprintf("%s%s%s (cycle)\n", prefix, branch, service))
 		return b.String()
 	}
 	visited[service] = true
 
-	// Print current service
-	if depth > 0 {
-		b.WriteString(fmt.Sprintf("%s%s\n", strings.Repeat("  ", depth), service))
-	}
+	// Print this node
+	b.WriteString(fmt.Sprintf("%s%s%s\n", prefix, branch, service))
 
-	// Read inherited services
+	// Load metadata
 	metadata, err := store.Read(ctx, service)
 	if err != nil {
-		b.WriteString(fmt.Sprintf("%s(error: %v)\n", strings.Repeat("  ", depth+1), err))
 		return b.String()
 	}
 
-	// Recurse into children
-	for _, parent := range metadata.Inherits {
-		b.WriteString(buildInheritanceTree(ctx, parent, store, depth+1, visited))
+	// Recurse
+	for i, parent := range metadata.Inherits {
+		last := i == len(metadata.Inherits)-1
+		b.WriteString(buildInheritanceTree(ctx, parent, store, nextPrefix, last, visited))
 	}
 
 	return b.String()
