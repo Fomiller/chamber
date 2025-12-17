@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"sort"
@@ -59,29 +60,42 @@ func list(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("Failed to get secret store: %w", err)
 	}
 
-	metadataStore, err := getMetadataStore(cmd.Context())
+	// metadataStore, err := getMetadataStore(cmd.Context())
+	// if err != nil {
+	// 	return fmt.Errorf("Failed to get secret store: %w", err)
+	// }
+	// metadata, err := metadataStore.Read(cmd.Context(), service)
+	// if err != nil {
+	// 	return fmt.Errorf("Failed to list store contents: %w", err)
+	// }
+
+	// services := append([]string{service}, metadata.Inherits...)
+
+	// var secrets []store.Secret
+	// for _, service := range services {
+	// 	_secrets, err := secretStore.List(cmd.Context(), service, withValues)
+	// 	if err != nil {
+	// 		return fmt.Errorf("Failed to list store contents: %w", err)
+	// 	}
+	// 	secrets = append(secrets, _secrets...)
+	// }
+	// Usage:
+	visited := make(map[string]bool)
+	merged := make(map[string]store.Secret)
+	err = collectSecrets(cmd.Context(), service, secretStore, visited, merged)
 	if err != nil {
-		return fmt.Errorf("Failed to get secret store: %w", err)
-	}
-	metadata, err := metadataStore.Read(cmd.Context(), service)
-	if err != nil {
-		return fmt.Errorf("Failed to list store contents: %w", err)
+		return err
 	}
 
-	services := append([]string{service}, metadata.Inherits...)
-
-	var secrets []store.Secret
-	for _, service := range services {
-		_secrets, err := secretStore.List(cmd.Context(), service, withValues)
-		if err != nil {
-			return fmt.Errorf("Failed to list store contents: %w", err)
-		}
-		secrets = append(secrets, _secrets...)
+	// Convert to slice
+	secrets := make([]store.Secret, 0, len(merged))
+	for _, s := range merged {
+		secrets = append(secrets, s)
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 8, 2, '\t', 0)
 
-	fmt.Fprint(w, "Key\tVersion\tLastModified\tUser")
+	fmt.Fprint(w, "Key\tVersion\tLastModified\tService\tUser")
 	if withValues {
 		fmt.Fprint(w, "\tValue")
 	}
@@ -99,11 +113,13 @@ func list(cmd *cobra.Command, args []string) error {
 	}
 
 	for _, secret := range secrets {
-		fmt.Fprintf(w, "%s\t%d\t%s\t%s",
+		fmt.Fprintf(w, "%s\t%d\t%s\t%s\t%s",
 			key(secret.Meta.Key),
 			secret.Meta.Version,
 			secret.Meta.Created.Local().Format(ShortTimeFormat),
+			serviceName(secret.Meta.Key),
 			secret.Meta.CreatedBy)
+
 		if withValues {
 			fmt.Fprintf(w, "\t%s", *secret.Value)
 		}
@@ -114,11 +130,78 @@ func list(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// Recursively collects secrets for a service and its inherited parents.
+// Child secrets overwrite parent secrets on key collisions.
+func collectSecrets(ctx context.Context, service string, secretStore store.Store, visited map[string]bool, merged map[string]store.Secret) error {
+	if visited[service] {
+		return nil
+	}
+	visited[service] = true
+
+	metadataStore, err := getMetadataStore(ctx)
+	if err != nil {
+		return fmt.Errorf("Failed to get secret store: %w", err)
+	}
+
+	// Read metadata to get children
+	metadata, err := metadataStore.Read(ctx, service)
+	if err != nil {
+		return fmt.Errorf("failed to read metadata for %q: %w", service, err)
+	}
+
+	// Recurse into children first
+	for _, child := range metadata.Inherits {
+		if err := collectSecrets(ctx, child, secretStore, visited, merged); err != nil {
+			return err
+		}
+	}
+
+	// Now add this service's secrets, overwriting any child secrets
+	secrets, err := secretStore.List(ctx, service, true)
+	if err != nil {
+		return fmt.Errorf("failed to list secrets for %q: %w", service, err)
+	}
+
+	for _, s := range secrets {
+		merged[key(s.Meta.Key)] = s // parent overwrites child
+	}
+
+	return nil
+}
+
+// Flatten and deduplicate by key, with child overwriting parent
+func mergeSecretsWithInheritance(secrets []store.Secret) []store.Secret {
+	merged := make(map[string]store.Secret)
+
+	// Iterate in order: parents first, children last
+	// Only set if key not already present (parents first)
+	for i := len(secrets) - 1; i >= 0; i-- {
+		s := secrets[i]
+		merged[key(s.Meta.Key)] = s
+	}
+
+	// Convert back to slice
+	result := make([]store.Secret, 0, len(merged))
+	for _, s := range merged {
+		result = append(result, s)
+	}
+
+	return result
+}
+
 func key(s string) string {
 	sep := "/"
 
 	tokens := strings.Split(s, sep)
 	secretKey := tokens[len(tokens)-1]
+	return secretKey
+}
+
+func serviceName(s string) string {
+	sep := "/"
+
+	tokens := strings.Split(s, sep)
+	secretKey := strings.Join(tokens[0:len(tokens)-1], sep)
 	return secretKey
 }
 

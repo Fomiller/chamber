@@ -74,6 +74,7 @@ type SecretMetadata struct {
 	CreatedBy string
 	Version   int
 	Key       string
+	Service   string
 }
 
 type ChangeEvent struct {
