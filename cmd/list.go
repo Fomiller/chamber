@@ -58,9 +58,25 @@ func list(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("Failed to get secret store: %w", err)
 	}
-	secrets, err := secretStore.List(cmd.Context(), service, withValues)
+
+	metadataStore, err := getMetadataStore(cmd.Context())
+	if err != nil {
+		return fmt.Errorf("Failed to get secret store: %w", err)
+	}
+	metadata, err := metadataStore.Read(cmd.Context(), service)
 	if err != nil {
 		return fmt.Errorf("Failed to list store contents: %w", err)
+	}
+
+	services := append([]string{service}, metadata.Inherits...)
+
+	var secrets []store.Secret
+	for _, service := range services {
+		_secrets, err := secretStore.List(cmd.Context(), service, withValues)
+		if err != nil {
+			return fmt.Errorf("Failed to list store contents: %w", err)
+		}
+		secrets = append(secrets, _secrets...)
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 8, 2, '\t', 0)
