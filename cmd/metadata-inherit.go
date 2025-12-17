@@ -1,12 +1,14 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
 	"text/tabwriter"
 
 	analytics "github.com/segmentio/analytics-go/v3"
+	"github.com/segmentio/chamber/v3/store"
 	"github.com/segmentio/chamber/v3/utils"
 	"github.com/spf13/cobra"
 )
@@ -75,13 +77,46 @@ func inherit(cmd *cobra.Command, args []string) error {
 	// 	sort.Sort(ByVersion(secrets))
 	// }
 	//
+	visited := make(map[string]bool)
+	// printInheritanceTree(cmd.Context(), service, metadataStore, 0, visited)
 
-	inheritedServices := strings.Join(metadata.Inherits, ", ")
-	fmt.Fprintf(w, "%s\t%s", key(metadata.Service), inheritedServices)
+	// inheritedServices := strings.Join(metadata.Inherits, ", ")
+	fmt.Fprintf(w, "%s", key(metadata.Service), buildInheritanceTree(cmd.Context(), service, metadataStore, 0, visited))
+
 	fmt.Fprintln(w, "")
 
 	w.Flush()
 	return nil
+}
+
+func buildInheritanceTree(ctx context.Context, service string, store store.MetadataStore, depth int, visited map[string]bool) string {
+	var b strings.Builder
+
+	// Prevent cycles
+	if visited[service] {
+		b.WriteString(fmt.Sprintf("%s%s (cycle)\n", strings.Repeat("  ", depth), service))
+		return b.String()
+	}
+	visited[service] = true
+
+	// Print current service
+	if depth > 0 {
+		b.WriteString(fmt.Sprintf("%s%s\n", strings.Repeat("  ", depth), service))
+	}
+
+	// Read inherited services
+	metadata, err := store.Read(ctx, service)
+	if err != nil {
+		b.WriteString(fmt.Sprintf("%s(error: %v)\n", strings.Repeat("  ", depth+1), err))
+		return b.String()
+	}
+
+	// Recurse into children
+	for _, parent := range metadata.Inherits {
+		b.WriteString(buildInheritanceTree(ctx, parent, store, depth+1, visited))
+	}
+
+	return b.String()
 }
 
 // func key(s string) string {
