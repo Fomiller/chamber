@@ -26,7 +26,7 @@ func inheritsSet(cmd *cobra.Command, args []string) error {
 	service := args[0]
 	raw := args[1]
 
-	inherits := parseCommaList(raw)
+	inherits := ParseCommaList(raw)
 
 	metadataStore, err := getMetadataStore(cmd.Context())
 	if err != nil {
@@ -41,7 +41,7 @@ func inheritsSet(cmd *cobra.Command, args []string) error {
 
 }
 
-func parseCommaList(input string) []string {
+func ParseCommaList(input string) []string {
 	parts := strings.Split(input, ",")
 	out := make([]string, 0, len(parts))
 
