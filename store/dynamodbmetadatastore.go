@@ -55,6 +55,31 @@ func dynamodbMetadataStoreUsingRetryer(ctx context.Context, numRetries int, retr
 	}, nil
 }
 
+func (d *DynamodbMetadataStore) Create(ctx context.Context, service string) (Metadata, error) {
+	tableName := os.Getenv("CHAMBER_METADATA_TABLE_NAME")
+	if tableName == "" {
+		return Metadata{}, fmt.Errorf("CHAMBER_METADATA_TABLE_NAME must be set")
+	}
+
+	out, err := d.svc.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName: aws.String(os.Getenv("CHAMBER_METADATA_TABLE_NAME")),
+		Item: map[string]types.AttributeValue{
+			"service": &types.AttributeValueMemberS{Value: service},
+		},
+		ConditionExpression: aws.String("attribute_not_exists(service)"),
+	})
+	if err != nil {
+		return Metadata{}, err
+	}
+
+	var item Metadata
+	if err := attributevalue.UnmarshalMap(out.Attributes, &item); err != nil {
+		return Metadata{}, fmt.Errorf("unmarshal metadata: %w", err)
+	}
+
+	return item, nil
+}
+
 func (d *DynamodbMetadataStore) Read(ctx context.Context, service string) (Metadata, error) {
 	tableName := os.Getenv("CHAMBER_METADATA_TABLE_NAME")
 	if tableName == "" {

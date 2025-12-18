@@ -10,6 +10,7 @@ type Metadata struct {
 
 // Store is an interface for a secret store.
 type MetadataStore interface {
+	Create(ctx context.Context, service string) (Metadata, error)
 	Read(ctx context.Context, service string) (Metadata, error)
 	SetInherits(ctx context.Context, service string, inherits []string) error
 	AddInherits(ctx context.Context, service string, inherits []string) error

@@ -161,10 +161,15 @@ func collectSecretsConcurrent2(
 		mu.Unlock()
 
 		sem <- struct{}{}
+
 		metadata, err := metadataStore.Read(ctx, svc)
+		if err != nil {
+			metadata, err = metadataStore.Create(ctx, svc)
+		}
+
 		<-sem
 		if err != nil {
-			return fmt.Errorf("failed to read metadata for %q: %w", svc, err)
+			return fmt.Errorf("failed to missing metadata for %q: %w", svc, err)
 		}
 
 		mu.Lock()

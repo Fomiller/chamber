@@ -96,6 +96,10 @@ func buildInheritanceTree(ctx context.Context, service string, store store.Metad
 	// Load metadata
 	metadata, err := store.Read(ctx, service)
 	if err != nil {
+		metadata, err = store.Create(ctx, service)
+	}
+
+	if err != nil {
 		return b.String()
 	}
 
