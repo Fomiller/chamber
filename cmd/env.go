@@ -2,12 +2,14 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/alessio/shellescape"
 	analytics "github.com/segmentio/analytics-go/v3"
+	"github.com/segmentio/chamber/v3/store"
 	"github.com/segmentio/chamber/v3/utils"
 
 	"github.com/spf13/cobra"
@@ -27,12 +29,14 @@ var (
 	}
 	preserveCase   bool
 	escapeSpecials bool
+	envInherit     bool
 )
 
 func init() {
 	envCmd.Flags().SortFlags = false
 	envCmd.Flags().BoolVarP(&preserveCase, "preserve-case", "p", false, "preserve variable name case")
 	envCmd.Flags().BoolVarP(&escapeSpecials, "escape-strings", "e", false, "escape special characters in values")
+	envCmd.Flags().BoolVarP(&envInherit, "inherit", "i", false, "Include inherited services")
 	RootCmd.AddCommand(envCmd)
 }
 
@@ -60,6 +64,8 @@ func env(cmd *cobra.Command, args []string) error {
 // Key ordering is non-deterministic and unstable, as returned
 // value from a given secret store is non-deterministic and unstable.
 func exportEnv(cmd *cobra.Command, args []string) ([]string, error) {
+	var out []string
+
 	service := utils.NormalizeService(args[0])
 	if err := validateService(service); err != nil {
 		return nil, fmt.Errorf("Failed to validate service: %w", err)
@@ -68,11 +74,6 @@ func exportEnv(cmd *cobra.Command, args []string) ([]string, error) {
 	secretStore, err := getSecretStore(cmd.Context())
 	if err != nil {
 		return nil, fmt.Errorf("Failed to get secret store: %w", err)
-	}
-
-	rawSecrets, err := secretStore.ListRaw(cmd.Context(), service)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to list store contents: %w", err)
 	}
 
 	if analyticsEnabled && analyticsClient != nil {
@@ -88,11 +89,42 @@ func exportEnv(cmd *cobra.Command, args []string) ([]string, error) {
 	}
 
 	params := make(map[string]string)
-	for _, rawSecret := range rawSecrets {
-		params[key(rawSecret.Key)] = rawSecret.Value
+
+	if envInherit {
+		metadataStore, err := getMetadataStore(cmd.Context())
+		if err != nil {
+			return out, fmt.Errorf("failed to get metadata store: %w", err)
+		}
+
+		merged := make(map[string]store.Secret)
+		merged, err = collectSecretsConcurrent2(cmd.Context(), service, secretStore, metadataStore)
+		for _, secret := range merged {
+			k := key(secret.Meta.Key)
+			if _, ok := params[k]; ok {
+				fmt.Fprintf(os.Stderr, "warning: parameter %s specified more than once (overridden by service %s)\n", k, service)
+			}
+			params[k] = *secret.Value
+		}
+	} else {
+		service = utils.NormalizeService(service)
+		if err := validateService(service); err != nil {
+			return out, fmt.Errorf("Failed to validate service %s: %w", service, err)
+		}
+
+		rawSecrets, err := secretStore.ListRaw(cmd.Context(), service)
+		if err != nil {
+			return out, fmt.Errorf("Failed to list store contents for service %s: %w", service, err)
+		}
+		for _, rawSecret := range rawSecrets {
+			k := key(rawSecret.Key)
+			if _, ok := params[k]; ok {
+				fmt.Fprintf(os.Stderr, "warning: parameter %s specified more than once (overridden by service %s)\n", k, service)
+			}
+			params[k] = rawSecret.Value
+		}
 	}
 
-	out, err := buildEnvOutput(params)
+	out, err = buildEnvOutput(params)
 	if err != nil {
 		return nil, err
 	}
