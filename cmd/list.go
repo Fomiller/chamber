@@ -31,6 +31,7 @@ var listCmd = &cobra.Command{
 
 var (
 	withValues    bool
+	sortByKey     bool
 	sortByTime    bool
 	sortByUser    bool
 	sortByVersion bool
@@ -39,6 +40,7 @@ var (
 
 func init() {
 	listCmd.Flags().BoolVarP(&withValues, "expand", "e", false, "Expand parameter list with values")
+	listCmd.Flags().BoolVarP(&sortByKey, "key", "k", false, "Sort by sort by key, useful when listing inherited services")
 	listCmd.Flags().BoolVarP(&sortByTime, "time", "t", false, "Sort by modified time")
 	listCmd.Flags().BoolVarP(&sortByUser, "user", "u", false, "Sort by user")
 	listCmd.Flags().BoolVarP(&sortByVersion, "version", "v", false, "Sort by version")
@@ -107,6 +109,9 @@ func list(cmd *cobra.Command, args []string) error {
 	fmt.Fprintln(w, "")
 
 	sort.Sort(ByName(secrets))
+	if sortByKey {
+		sort.Sort(ByKey(secrets))
+	}
 	if sortByTime {
 		sort.Sort(ByTime(secrets))
 	}
@@ -422,3 +427,9 @@ type ByVersion []store.Secret
 func (a ByVersion) Len() int           { return len(a) }
 func (a ByVersion) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ByVersion) Less(i, j int) bool { return a[i].Meta.Version < a[j].Meta.Version }
+
+type ByKey []store.Secret
+
+func (a ByKey) Len() int           { return len(a) }
+func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByKey) Less(i, j int) bool { return key(a[i].Meta.Key) < key(a[j].Meta.Key) }
