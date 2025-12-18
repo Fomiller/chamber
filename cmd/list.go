@@ -34,6 +34,7 @@ var (
 	sortByTime    bool
 	sortByUser    bool
 	sortByVersion bool
+	listInherit   bool
 )
 
 func init() {
@@ -41,6 +42,7 @@ func init() {
 	listCmd.Flags().BoolVarP(&sortByTime, "time", "t", false, "Sort by modified time")
 	listCmd.Flags().BoolVarP(&sortByUser, "user", "u", false, "Sort by user")
 	listCmd.Flags().BoolVarP(&sortByVersion, "version", "v", false, "Sort by version")
+	listCmd.Flags().BoolVarP(&listInherit, "inherit", "i", false, "Include inherited services")
 	RootCmd.AddCommand(listCmd)
 }
 
@@ -66,32 +68,39 @@ func list(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("Failed to get secret store: %w", err)
 	}
-	metadataStore, err := getMetadataStore(cmd.Context())
-	if err != nil {
-		return fmt.Errorf("failed to get metadata store: %w", err)
-	}
 
-	// visited := make(map[string]bool)
-	merged := make(map[string]store.Secret)
-	// cacheMeta := make(map[string]*store.Metadata)
-	// cacheSecrets := make(map[string][]store.Secret)
+	var secrets []store.Secret
+	if listInherit {
+		metadataStore, err := getMetadataStore(cmd.Context())
+		if err != nil {
+			return fmt.Errorf("failed to get metadata store: %w", err)
+		}
 
-	// var cache = make(map[string]*serviceCache)
-	merged, err = collectSecretsConcurrent2(cmd.Context(), service, secretStore, metadataStore)
-	// err = collectSecrets(cmd.Context(), service, secretStore, metadataStore, visited, merged, cache)
-	if err != nil {
-		return err
-	}
+		merged := make(map[string]store.Secret)
+		merged, err = collectSecretsConcurrent2(cmd.Context(), service, secretStore, metadataStore)
+		if err != nil {
+			return err
+		}
 
-	// Convert to slice
-	secrets := make([]store.Secret, 0, len(merged))
-	for _, s := range merged {
-		secrets = append(secrets, s)
+		for _, s := range merged {
+			secrets = append(secrets, s)
+		}
+
+	} else {
+		secrets, err = secretStore.List(cmd.Context(), service, withValues)
+		if err != nil {
+			return fmt.Errorf("Failed to list store contents: %w", err)
+		}
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 8, 2, '\t', 0)
 
-	fmt.Fprint(w, "Key\tVersion\tLastModified\tService\tUser")
+	if listInherit {
+		fmt.Fprint(w, "Key\tVersion\tLastModified\tService\tUser")
+	} else {
+		fmt.Fprint(w, "Key\tVersion\tLastModified\tUser")
+	}
+
 	if withValues {
 		fmt.Fprint(w, "\tValue")
 	}
@@ -109,16 +118,25 @@ func list(cmd *cobra.Command, args []string) error {
 	}
 
 	for _, secret := range secrets {
-		fmt.Fprintf(w, "%s\t%d\t%s\t%s\t%s",
-			key(secret.Meta.Key),
-			secret.Meta.Version,
-			secret.Meta.Created.Local().Format(ShortTimeFormat),
-			serviceName(secret.Meta.Key),
-			secret.Meta.CreatedBy)
+		if listInherit {
+			fmt.Fprintf(w, "%s\t%d\t%s\t%s\t%s",
+				key(secret.Meta.Key),
+				secret.Meta.Version,
+				secret.Meta.Created.Local().Format(ShortTimeFormat),
+				serviceName(secret.Meta.Key),
+				secret.Meta.CreatedBy)
+		} else {
+			fmt.Fprintf(w, "%s\t%d\t%s\t%s",
+				key(secret.Meta.Key),
+				secret.Meta.Version,
+				secret.Meta.Created.Local().Format(ShortTimeFormat),
+				secret.Meta.CreatedBy)
+		}
 
 		if withValues {
 			fmt.Fprintf(w, "\t%s", *secret.Value)
 		}
+
 		fmt.Fprintln(w, "")
 	}
 
