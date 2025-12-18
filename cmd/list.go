@@ -6,13 +6,20 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"text/tabwriter"
 
 	analytics "github.com/segmentio/analytics-go/v3"
 	"github.com/segmentio/chamber/v3/store"
 	"github.com/segmentio/chamber/v3/utils"
 	"github.com/spf13/cobra"
+	"golang.org/x/sync/errgroup"
 )
+
+type serviceCache struct {
+	metadata store.Metadata
+	secrets  []store.Secret
+}
 
 // listCmd represents the list command
 var listCmd = &cobra.Command{
@@ -59,30 +66,19 @@ func list(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("Failed to get secret store: %w", err)
 	}
+	metadataStore, err := getMetadataStore(cmd.Context())
+	if err != nil {
+		return fmt.Errorf("failed to get metadata store: %w", err)
+	}
 
-	// metadataStore, err := getMetadataStore(cmd.Context())
-	// if err != nil {
-	// 	return fmt.Errorf("Failed to get secret store: %w", err)
-	// }
-	// metadata, err := metadataStore.Read(cmd.Context(), service)
-	// if err != nil {
-	// 	return fmt.Errorf("Failed to list store contents: %w", err)
-	// }
-
-	// services := append([]string{service}, metadata.Inherits...)
-
-	// var secrets []store.Secret
-	// for _, service := range services {
-	// 	_secrets, err := secretStore.List(cmd.Context(), service, withValues)
-	// 	if err != nil {
-	// 		return fmt.Errorf("Failed to list store contents: %w", err)
-	// 	}
-	// 	secrets = append(secrets, _secrets...)
-	// }
-	// Usage:
-	visited := make(map[string]bool)
+	// visited := make(map[string]bool)
 	merged := make(map[string]store.Secret)
-	err = collectSecrets(cmd.Context(), service, secretStore, visited, merged)
+	// cacheMeta := make(map[string]*store.Metadata)
+	// cacheSecrets := make(map[string][]store.Secret)
+
+	// var cache = make(map[string]*serviceCache)
+	merged, err = collectSecretsConcurrent2(cmd.Context(), service, secretStore, metadataStore)
+	// err = collectSecrets(cmd.Context(), service, secretStore, metadataStore, visited, merged, cache)
 	if err != nil {
 		return err
 	}
@@ -130,63 +126,238 @@ func list(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// Recursively collects secrets for a service and its inherited parents.
-// Child secrets overwrite parent secrets on key collisions.
-func collectSecrets(ctx context.Context, service string, secretStore store.Store, visited map[string]bool, merged map[string]store.Secret) error {
+func collectSecretsConcurrent2(
+	ctx context.Context,
+	rootService string,
+	secretStore store.Store,
+	metadataStore store.MetadataStore,
+) (map[string]store.Secret, error) {
+
+	// -------------------------
+	// Phase 1: Parallel metadata discovery
+	// -------------------------
+
+	type node struct {
+		children []string
+	}
+
+	graph := make(map[string]*node)
+	visited := make(map[string]bool)
+
+	var mu sync.Mutex
+	g, _ := errgroup.WithContext(ctx)
+
+	// Limit concurrent metadata reads
+	sem := make(chan struct{}, 8)
+
+	var fetchMetadata func(string) error
+	fetchMetadata = func(svc string) error {
+		mu.Lock()
+		if visited[svc] {
+			mu.Unlock()
+			return nil
+		}
+		visited[svc] = true
+		mu.Unlock()
+
+		sem <- struct{}{}
+		metadata, err := metadataStore.Read(ctx, svc)
+		<-sem
+		if err != nil {
+			return fmt.Errorf("failed to read metadata for %q: %w", svc, err)
+		}
+
+		mu.Lock()
+		graph[svc] = &node{children: metadata.Inherits}
+		mu.Unlock()
+
+		for _, child := range metadata.Inherits {
+			g.Go(func() error {
+				return fetchMetadata(child)
+			})
+		}
+		return nil
+	}
+
+	if err := fetchMetadata(rootService); err != nil {
+		return nil, err
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	// -------------------------
+	// Phase 2: Deterministic post-order traversal
+	// -------------------------
+
+	services := []string{}
+	seen := make(map[string]bool)
+
+	var postOrder func(string)
+	postOrder = func(svc string) {
+		if seen[svc] {
+			return
+		}
+		seen[svc] = true
+
+		for _, child := range graph[svc].children {
+			postOrder(child)
+		}
+		services = append(services, svc)
+	}
+
+	postOrder(rootService)
+
+	// -------------------------
+	// Phase 3: Parallel secret listing
+	// -------------------------
+
+	results := make(map[string][]store.Secret)
+	var resultsMu sync.Mutex
+	g, _ = errgroup.WithContext(ctx)
+
+	for _, svc := range services {
+		g.Go(func() error {
+			secrets, err := secretStore.List(ctx, svc, true)
+			if err != nil {
+				return fmt.Errorf("failed to list secrets for %q: %w", svc, err)
+			}
+
+			resultsMu.Lock()
+			results[svc] = secrets
+			resultsMu.Unlock()
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	// -------------------------
+	// Phase 4: Ordered merge (parents overwrite children)
+	// -------------------------
+
+	merged := make(map[string]store.Secret)
+	for _, svc := range services {
+		for _, s := range results[svc] {
+			merged[key(s.Meta.Key)] = s
+		}
+	}
+
+	return merged, nil
+}
+
+func collectSecretsConcurrent(ctx context.Context, rootService string, secretStore store.Store, metadataStore store.MetadataStore) (map[string]store.Secret, error) {
+	// Step 1: Traverse tree to collect unique services
+	visited := make(map[string]bool)
+	var collectServices func(svc string) error
+	services := []string{}
+
+	collectServices = func(svc string) error {
+		if visited[svc] {
+			return nil
+		}
+		visited[svc] = true
+
+		metadata, err := metadataStore.Read(ctx, svc)
+		if err != nil {
+			return fmt.Errorf("failed to read metadata for %q: %w", svc, err)
+		}
+
+		for _, child := range metadata.Inherits {
+			if err := collectServices(child); err != nil {
+				return err
+			}
+		}
+
+		services = append(services, svc) // append after children for bottom-up merging
+		return nil
+	}
+
+	if err := collectServices(rootService); err != nil {
+		return nil, err
+	}
+
+	// Step 2: Fetch all secrets concurrently
+	results := make(map[string][]store.Secret)
+	var mu sync.Mutex
+	g, ctx := errgroup.WithContext(ctx)
+
+	for _, svc := range services {
+		g.Go(func() error {
+			secrets, err := secretStore.List(ctx, svc, true)
+			if err != nil {
+				return fmt.Errorf("failed to list secrets for %q: %w", svc, err)
+			}
+
+			mu.Lock()
+			results[svc] = secrets
+			mu.Unlock()
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	// Step 3: Merge secrets bottom-up (parents overwrite children)
+	merged := make(map[string]store.Secret)
+	// Merge children first, parents last
+	for _, svc := range services {
+		for _, s := range results[svc] {
+			merged[key(s.Meta.Key)] = s
+		}
+	}
+	return merged, nil
+}
+
+func collectSecrets(ctx context.Context, service string, secretStore store.Store, metadataStore store.MetadataStore, visited map[string]bool, merged map[string]store.Secret, cache map[string]*serviceCache) error {
 	if visited[service] {
 		return nil
 	}
 	visited[service] = true
 
-	metadataStore, err := getMetadataStore(ctx)
-	if err != nil {
-		return fmt.Errorf("Failed to get secret store: %w", err)
-	}
-
-	// Read metadata to get children
-	metadata, err := metadataStore.Read(ctx, service)
-	if err != nil {
-		return fmt.Errorf("failed to read metadata for %q: %w", service, err)
-	}
-
-	// Recurse into children first
-	for _, child := range metadata.Inherits {
-		if err := collectSecrets(ctx, child, secretStore, visited, merged); err != nil {
-			return err
+	// Check cache
+	if _, ok := cache[service]; !ok {
+		metadata, err := metadataStore.Read(ctx, service)
+		if err != nil {
+			return fmt.Errorf("failed to read metadata for %q: %w", service, err)
 		}
+
+		secrets, err := secretStore.List(ctx, service, true)
+		if err != nil {
+			return fmt.Errorf("failed to list secrets for %q: %w", service, err)
+		}
+
+		cache[service] = &serviceCache{
+			metadata: metadata,
+			secrets:  secrets,
+		}
+	} else {
+		fmt.Println("cache hit:", service)
 	}
 
-	// Now add this service's secrets, overwriting any child secrets
-	secrets, err := secretStore.List(ctx, service, true)
-	if err != nil {
-		return fmt.Errorf("failed to list secrets for %q: %w", service, err)
+	// Recurse into children concurrently
+	g, ctx := errgroup.WithContext(ctx)
+	for _, child := range cache[service].metadata.Inherits {
+		child := child
+		g.Go(func() error {
+			return collectSecrets(ctx, child, secretStore, metadataStore, visited, merged, cache)
+		})
 	}
 
-	for _, s := range secrets {
-		merged[key(s.Meta.Key)] = s // parent overwrites child
+	if err := g.Wait(); err != nil {
+		return err
 	}
 
-	return nil
-}
-
-// Flatten and deduplicate by key, with child overwriting parent
-func mergeSecretsWithInheritance(secrets []store.Secret) []store.Secret {
-	merged := make(map[string]store.Secret)
-
-	// Iterate in order: parents first, children last
-	// Only set if key not already present (parents first)
-	for i := len(secrets) - 1; i >= 0; i-- {
-		s := secrets[i]
+	// Merge this service's secrets (parent overwrites children)
+	for _, s := range cache[service].secrets {
 		merged[key(s.Meta.Key)] = s
 	}
 
-	// Convert back to slice
-	result := make([]store.Secret, 0, len(merged))
-	for _, s := range merged {
-		result = append(result, s)
-	}
-
-	return result
+	return nil
 }
 
 func key(s string) string {
