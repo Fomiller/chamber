@@ -12,14 +12,16 @@ import (
 	yaml "github.com/goccy/go-yaml"
 	"github.com/magiconair/properties"
 	analytics "github.com/segmentio/analytics-go/v3"
+	"github.com/segmentio/chamber/v3/store"
 	"github.com/segmentio/chamber/v3/utils"
 	"github.com/spf13/cobra"
 )
 
 // exportCmd represents the export command
 var (
-	exportFormat string
-	exportOutput string
+	exportFormat  string
+	exportOutput  string
+	exportInherit bool
 
 	exportCmd = &cobra.Command{
 		Use:   "export <service...>",
@@ -33,6 +35,7 @@ func init() {
 	exportCmd.Flags().SortFlags = false
 	exportCmd.Flags().StringVarP(&exportFormat, "format", "f", "json", "Output format (json, yaml, java-properties, csv, tsv, dotenv, tfvars)")
 	exportCmd.Flags().StringVarP(&exportOutput, "output-file", "o", "", "Output file (default is standard output)")
+	exportCmd.Flags().BoolVarP(&exportInherit, "inherit", "i", false, "Include inherited services")
 
 	RootCmd.AddCommand(exportCmd)
 }
@@ -57,22 +60,43 @@ func runExport(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	params := make(map[string]string)
-	for _, service := range args {
-		service = utils.NormalizeService(service)
-		if err := validateService(service); err != nil {
-			return fmt.Errorf("Failed to validate service %s: %w", service, err)
+	if exportInherit {
+		service := args[0]
+		if len(args) > 1 {
+			fmt.Fprintf(os.Stderr, "warning: more than one service was specified, only first service (%s) will be exported\n", service)
 		}
-
-		rawSecrets, err := secretStore.ListRaw(cmd.Context(), service)
+		metadataStore, err := getMetadataStore(cmd.Context())
 		if err != nil {
-			return fmt.Errorf("Failed to list store contents for service %s: %w", service, err)
+			return fmt.Errorf("failed to get metadata store: %w", err)
 		}
-		for _, rawSecret := range rawSecrets {
-			k := key(rawSecret.Key)
+		merged := make(map[string]store.Secret)
+		merged, err = collectSecretsConcurrent2(cmd.Context(), service, secretStore, metadataStore)
+		for _, secret := range merged {
+			k := key(secret.Meta.Key)
 			if _, ok := params[k]; ok {
 				fmt.Fprintf(os.Stderr, "warning: parameter %s specified more than once (overridden by service %s)\n", k, service)
 			}
-			params[k] = rawSecret.Value
+			params[k] = *secret.Value
+		}
+
+	} else {
+		for _, service := range args {
+			service = utils.NormalizeService(service)
+			if err := validateService(service); err != nil {
+				return fmt.Errorf("Failed to validate service %s: %w", service, err)
+			}
+
+			rawSecrets, err := secretStore.ListRaw(cmd.Context(), service)
+			if err != nil {
+				return fmt.Errorf("Failed to list store contents for service %s: %w", service, err)
+			}
+			for _, rawSecret := range rawSecrets {
+				k := key(rawSecret.Key)
+				if _, ok := params[k]; ok {
+					fmt.Fprintf(os.Stderr, "warning: parameter %s specified more than once (overridden by service %s)\n", k, service)
+				}
+				params[k] = rawSecret.Value
+			}
 		}
 	}
 
