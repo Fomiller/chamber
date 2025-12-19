@@ -5,11 +5,13 @@ package store
 
 import (
 	"context"
+	"sync"
+
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
-	"sync"
 )
 
 // Ensure, that apiS3Mock does implement apiS3.
@@ -1161,5 +1163,195 @@ func (mock *apiSecretsManagerMock) PutSecretValueCalls() []struct {
 	mock.lockPutSecretValue.RLock()
 	calls = mock.calls.PutSecretValue
 	mock.lockPutSecretValue.RUnlock()
+	return calls
+}
+
+// Ensure, that apiDynamoDBMock does implement apiDynamoDB.
+// If this is not the case, regenerate this file with moq.
+var _ apiDynamoDB = &apiDynamoDBMock{}
+
+// apiDynamoDBMock is a mock implementation of apiDynamoDB.
+//
+//	func TestSomethingThatUsesapiDynamoDB(t *testing.T) {
+//
+//		// make and configure a mocked apiDynamoDB
+//		mockedapiDynamoDB := &apiDynamoDBMock{
+//			GetItemFunc: func(ctx context.Context, params *dynamodb.GetItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
+//				panic("mock out the GetItem method")
+//			},
+//			PutItemFunc: func(ctx context.Context, params *dynamodb.PutItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
+//				panic("mock out the PutItem method")
+//			},
+//			UpdateItemFunc: func(ctx context.Context, params *dynamodb.UpdateItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error) {
+//				panic("mock out the UpdateItem method")
+//			},
+//		}
+//
+//		// use mockedapiDynamoDB in code that requires apiDynamoDB
+//		// and then make assertions.
+//
+//	}
+type apiDynamoDBMock struct {
+	// GetItemFunc mocks the GetItem method.
+	GetItemFunc func(ctx context.Context, params *dynamodb.GetItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error)
+
+	// PutItemFunc mocks the PutItem method.
+	PutItemFunc func(ctx context.Context, params *dynamodb.PutItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error)
+
+	// UpdateItemFunc mocks the UpdateItem method.
+	UpdateItemFunc func(ctx context.Context, params *dynamodb.UpdateItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error)
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// GetItem holds details about calls to the GetItem method.
+		GetItem []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Params is the params argument value.
+			Params *dynamodb.GetItemInput
+			// OptFns is the optFns argument value.
+			OptFns []func(*dynamodb.Options)
+		}
+		// PutItem holds details about calls to the PutItem method.
+		PutItem []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Params is the params argument value.
+			Params *dynamodb.PutItemInput
+			// OptFns is the optFns argument value.
+			OptFns []func(*dynamodb.Options)
+		}
+		// UpdateItem holds details about calls to the UpdateItem method.
+		UpdateItem []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Params is the params argument value.
+			Params *dynamodb.UpdateItemInput
+			// OptFns is the optFns argument value.
+			OptFns []func(*dynamodb.Options)
+		}
+	}
+	lockGetItem    sync.RWMutex
+	lockPutItem    sync.RWMutex
+	lockUpdateItem sync.RWMutex
+}
+
+// GetItem calls GetItemFunc.
+func (mock *apiDynamoDBMock) GetItem(ctx context.Context, params *dynamodb.GetItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
+	if mock.GetItemFunc == nil {
+		panic("apiDynamoDBMock.GetItemFunc: method is nil but apiDynamoDB.GetItem was just called")
+	}
+	callInfo := struct {
+		Ctx    context.Context
+		Params *dynamodb.GetItemInput
+		OptFns []func(*dynamodb.Options)
+	}{
+		Ctx:    ctx,
+		Params: params,
+		OptFns: optFns,
+	}
+	mock.lockGetItem.Lock()
+	mock.calls.GetItem = append(mock.calls.GetItem, callInfo)
+	mock.lockGetItem.Unlock()
+	return mock.GetItemFunc(ctx, params, optFns...)
+}
+
+// GetItemCalls gets all the calls that were made to GetItem.
+// Check the length with:
+//
+//	len(mockedapiDynamoDB.GetItemCalls())
+func (mock *apiDynamoDBMock) GetItemCalls() []struct {
+	Ctx    context.Context
+	Params *dynamodb.GetItemInput
+	OptFns []func(*dynamodb.Options)
+} {
+	var calls []struct {
+		Ctx    context.Context
+		Params *dynamodb.GetItemInput
+		OptFns []func(*dynamodb.Options)
+	}
+	mock.lockGetItem.RLock()
+	calls = mock.calls.GetItem
+	mock.lockGetItem.RUnlock()
+	return calls
+}
+
+// PutItem calls PutItemFunc.
+func (mock *apiDynamoDBMock) PutItem(ctx context.Context, params *dynamodb.PutItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
+	if mock.PutItemFunc == nil {
+		panic("apiDynamoDBMock.PutItemFunc: method is nil but apiDynamoDB.PutItem was just called")
+	}
+	callInfo := struct {
+		Ctx    context.Context
+		Params *dynamodb.PutItemInput
+		OptFns []func(*dynamodb.Options)
+	}{
+		Ctx:    ctx,
+		Params: params,
+		OptFns: optFns,
+	}
+	mock.lockPutItem.Lock()
+	mock.calls.PutItem = append(mock.calls.PutItem, callInfo)
+	mock.lockPutItem.Unlock()
+	return mock.PutItemFunc(ctx, params, optFns...)
+}
+
+// PutItemCalls gets all the calls that were made to PutItem.
+// Check the length with:
+//
+//	len(mockedapiDynamoDB.PutItemCalls())
+func (mock *apiDynamoDBMock) PutItemCalls() []struct {
+	Ctx    context.Context
+	Params *dynamodb.PutItemInput
+	OptFns []func(*dynamodb.Options)
+} {
+	var calls []struct {
+		Ctx    context.Context
+		Params *dynamodb.PutItemInput
+		OptFns []func(*dynamodb.Options)
+	}
+	mock.lockPutItem.RLock()
+	calls = mock.calls.PutItem
+	mock.lockPutItem.RUnlock()
+	return calls
+}
+
+// UpdateItem calls UpdateItemFunc.
+func (mock *apiDynamoDBMock) UpdateItem(ctx context.Context, params *dynamodb.UpdateItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error) {
+	if mock.UpdateItemFunc == nil {
+		panic("apiDynamoDBMock.UpdateItemFunc: method is nil but apiDynamoDB.UpdateItem was just called")
+	}
+	callInfo := struct {
+		Ctx    context.Context
+		Params *dynamodb.UpdateItemInput
+		OptFns []func(*dynamodb.Options)
+	}{
+		Ctx:    ctx,
+		Params: params,
+		OptFns: optFns,
+	}
+	mock.lockUpdateItem.Lock()
+	mock.calls.UpdateItem = append(mock.calls.UpdateItem, callInfo)
+	mock.lockUpdateItem.Unlock()
+	return mock.UpdateItemFunc(ctx, params, optFns...)
+}
+
+// UpdateItemCalls gets all the calls that were made to UpdateItem.
+// Check the length with:
+//
+//	len(mockedapiDynamoDB.UpdateItemCalls())
+func (mock *apiDynamoDBMock) UpdateItemCalls() []struct {
+	Ctx    context.Context
+	Params *dynamodb.UpdateItemInput
+	OptFns []func(*dynamodb.Options)
+} {
+	var calls []struct {
+		Ctx    context.Context
+		Params *dynamodb.UpdateItemInput
+		OptFns []func(*dynamodb.Options)
+	}
+	mock.lockUpdateItem.RLock()
+	calls = mock.calls.UpdateItem
+	mock.lockUpdateItem.RUnlock()
 	return calls
 }

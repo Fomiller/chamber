@@ -17,7 +17,7 @@ import (
 // generated using the moq utility for substitution in unit tests. For more, see
 // https://aws.github.io/aws-sdk-go-v2/docs/unit-testing/ .
 
-//go:generate moq -out awsapi_mock.go . apiS3 apiSSM apiSTS apiSecretsManager
+//go:generate moq -out awsapi_mock.go . apiS3 apiSSM apiSTS apiSecretsManager apiDynamoDB
 
 type apiS3 interface {
 	DeleteObject(ctx context.Context, params *s3.DeleteObjectInput, optFns ...func(*s3.Options)) (*s3.DeleteObjectOutput, error)
